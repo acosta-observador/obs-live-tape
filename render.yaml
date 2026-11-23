@@ -1,0 +1,22 @@
+# Blueprint do Render para a OBS Live Tape.
+# Os segredos (sync: false) são pedidos no painel do Render na primeira criação.
+services:
+  - type: web
+    name: obs-live-tape
+    runtime: node
+    plan: starter
+    region: frankfurt
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    # /login é público e responde 200 sem autenticação.
+    healthCheckPath: /login
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: APP_ACCESS_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
