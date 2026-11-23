@@ -9,10 +9,9 @@ Transcrição em direto para jornalistas do Observador (comissões de inquérito
 | Etapa | Conteúdo | Estado |
 |---|---|---|
 | 1 | Base, login por palavra-passe, rota do token, deploy | feito |
-| 2 | Cliente realtime, ecrã de transcrição, nível do microfone, timestamps, `/diagnostico` | por fazer |
-| 3 | Gravação local de áudio e sessão no IndexedDB | por fazer |
-| 4 | Reconexão automática | por fazer |
-| 5 | Marcadores, pesquisa, alertas, vocabulário | por fazer |
+| 2 | Cliente realtime, ecrã de transcrição ao vivo, nível do microfone, timestamps, vocabulário, reconexão automática, `/diagnostico` | feito (testado com servidor simulado) |
+| 3 | Gravação local de áudio (MediaRecorder + IndexedDB) e sessão guardada contra refresh | por fazer |
+| 5 | Marcadores, pesquisa e palavras de alerta | por fazer |
 | 6 | Exportação .txt / .srt / .docx | por fazer |
 
 ## Como funciona (arquitetura)
@@ -23,6 +22,16 @@ Transcrição em direto para jornalistas do Observador (comissões de inquérito
 - Todo o acesso é protegido por uma palavra-passe partilhada. O `proxy.ts` (o antigo "middleware" do Next) exige um cookie de sessão httpOnly assinado (HMAC) em todas as páginas e APIs, exceto `/login` e `/api/login`. A rota do token volta a verificar a sessão.
 - O servidor **não regista conteúdo de transcrições nem áudio**. Só regista o código HTTP de falhas ao pedir tokens.
 
+## Transcrição ao vivo (como funciona)
+
+- O microfone é captado a 16 kHz mono (AudioWorklet) e enviado em blocos de ~128 ms (`pcm_16000`). Cancelamento de eco e supressão de ruído estão **desligados** de propósito: se a audição tocar nas colunas do mesmo computador, o cancelamento de eco apagaria o áudio que queremos transcrever.
+- Texto **parcial** a cinzento, **confirmado** a branco (tema escuro), com timestamps `hh:mm:ss` contados desde o início da sessão. Se paras e voltas a iniciar, a contagem continua.
+- O scroll acompanha o texto novo e pára se subires; aparece "Ir para o fim".
+- **Reconexão automática**: se a ligação cair, a app pede um token novo e liga outra vez (espera 1 s, 2 s, 4 s… até 10 s entre tentativas). O áudio captado nesse intervalo fica em memória (até 90 s) e é enviado depois, a 3x a velocidade real. A transcrição mostra um aviso "Ligação interrompida" com o intervalo e se algum áudio ficou sem transcrever. Na nova ligação envia-se `previous_text` com as últimas palavras confirmadas (a API recomenda menos de 50 caracteres).
+- O ecrã fica aceso durante a gravação (Wake Lock) e o browser avisa antes de fechar/recarregar a página.
+- **Vocabulário**: cada linha das Definições vai como `keyterms` (máx. 50 termos de 50 caracteres).
+- `/diagnostico` liga com os parâmetros que escolheres (modelo, `pt` ou `por`, keyterms) e mostra as mensagens em bruto, para validar a API no browser.
+
 ## Variáveis de ambiente
 
 | Variável | Obrigatória | Descrição |
@@ -31,6 +40,8 @@ Transcrição em direto para jornalistas do Observador (comissões de inquérito
 | `APP_ACCESS_PASSWORD` | sim | Palavra-passe partilhada. Mudá-la termina todas as sessões abertas. |
 | `SESSION_SECRET` | não | Segredo extra para assinar os cookies. |
 | `SCRIBE_MAX_SESSION_SECONDS` | não | Fecha a sessão realtime ao fim de N segundos. |
+| `ELEVENLABS_API_BASE` | não | Endpoint HTTP da ElevenLabs (por defeito `https://api.elevenlabs.io`; ex. UE: `https://api.eu.residency.elevenlabs.io`). |
+| `NEXT_PUBLIC_SCRIBE_WS_BASE` | não | Base do WebSocket (por defeito `wss://api.elevenlabs.io`). Tem de combinar com a região escolhida e é lida **na build**. |
 
 Há um modelo em `.env.example`.
 
@@ -66,7 +77,13 @@ Notas:
 proxy.ts                      proteção por sessão (páginas e APIs)
 lib/auth.ts                   cookie assinado e verificação da palavra-passe
 app/login/page.tsx            ecrã de entrada
-app/page.tsx                  ecrã principal (provisório na etapa 1)
+app/page.tsx                  ecrã principal (components/LiveScreen.tsx)
+app/diagnostico/page.tsx      página técnica para testar a API no browser
+components/                   LiveScreen, TranscriptView, LevelBars, SettingsSheet
+lib/session/controller.ts     sessão: microfone -> WebSocket -> segmentos, fila de áudio, reconexão
+lib/scribe/                   protocolo, ligação WebSocket, pedido de token
+lib/audio/mic.ts              captura do microfone (AudioWorklet, PCM 16 kHz)
+lib/settings.ts               definições guardadas no browser
 app/api/login|logout          sessão
 app/api/scribe-token          token de curta duração para a ElevenLabs
 render.yaml                   blueprint do Render

@@ -5,7 +5,9 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 // Cada token é de uso único: o pedido é sempre dinâmico (POST + cookies) e a
 // resposta leva Cache-Control: no-store. Não usar `export const dynamic` aqui,
 // é incompatível com cacheComponents no Next 16.
-const TOKEN_URL = "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe";
+// ELEVENLABS_API_BASE permite usar os endpoints de residência de dados (ex.: UE) ou um servidor de testes.
+const API_BASE = process.env.ELEVENLABS_API_BASE ?? "https://api.elevenlabs.io";
+const TOKEN_PATH = "/v1/single-use-token/realtime_scribe";
 
 /**
  * Gera um token de curta duração (uso único, 15 min para ser usado) para o
@@ -38,7 +40,7 @@ export async function POST() {
     );
   }
 
-  const url = new URL(TOKEN_URL);
+  const url = new URL(TOKEN_PATH, API_BASE);
   const maxSeconds = Number(process.env.SCRIBE_MAX_SESSION_SECONDS);
   if (Number.isInteger(maxSeconds) && maxSeconds > 0) {
     url.searchParams.set("max_session_duration_seconds", String(maxSeconds));
@@ -63,7 +65,9 @@ export async function POST() {
   }
 
   if (!upstream.ok) {
-    console.error(`[scribe-token] ElevenLabs respondeu ${upstream.status}`);
+    // Registamos só o código e o motivo do erro da ElevenLabs (não contém áudio nem texto).
+    const detail = await upstream.text().catch(() => "");
+    console.error(`[scribe-token] ElevenLabs respondeu ${upstream.status}: ${detail.slice(0, 300)}`);
     if (upstream.status === 401 || upstream.status === 403) {
       return NextResponse.json(
         {
